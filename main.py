@@ -21,7 +21,7 @@ class Chicken:
     def __init__(self):
         self.x = WIDTH // 2
         self.y = HEIGHT - 100
-        self.speed = 4
+        self.speed = 2
         self.image = chicken_idle
         self.frame = 0
         self.frame_timer = 0

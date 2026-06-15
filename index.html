@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Chicken Across the Street: Coleta Seletiva</title>
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #1f1f1f;
+      display: grid;
+      place-items: center;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #gameWrap {
+      width: min(100vw, 1366px);
+      aspect-ratio: 16 / 9;
+      background: #000;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, .55);
+      position: relative;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameWrap">
+    <canvas id="game" width="1366" height="768"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+    const BASE_WIDTH = 768;
+    const UI_OFFSET_X = Math.floor((WIDTH - BASE_WIDTH) / 2);
+    const DRAG_ITEM_SIZE = 46;
+    const MAP_TRANSITION_DURATION = 300;
+    const BUTTON_CROP = { x: 170, y: 340, w: 700, h: 290 };
+    const ICON_CROP = { x: 270, y: 245, w: 500, h: 520 };
+    const SOUND_CROP = { x: 300, y: 285, w: 430, h: 430 };
+    const BANNER_CROP = { x: 80, y: 285, w: 870, h: 380 };
+    const SOUND_RECT = { x: WIDTH - 66, y: 16, w: 50, h: 50 };
+    const MAP_POINTS = [
+      [118, 604],
+      [347, 604],
+      [553, 604],
+      [767, 604],
+      [983, 604],
+      [1227, 604],
+    ];
+
+    const CATEGORY_LABELS = {
+      plastico: "Plástico",
+      papel: "Papel",
+      metal: "Metal",
+      vidro: "Vidro",
+      organico: "Orgânico",
+    };
+    const CATEGORY_REASONS = {
+      plastico: "materiais plásticos recicláveis devem ir na lixeira vermelha.",
+      papel: "papéis limpos devem ir na lixeira azul.",
+      metal: "latas e objetos metálicos devem ir na lixeira amarela.",
+      vidro: "garrafas e potes de vidro devem ir na lixeira verde.",
+      organico: "restos de comida viram adubo na lixeira marrom.",
+    };
+
+    const LEVELS = [
+      {
+        title: "Fase 1: Plástico",
+        focus: "Atravesse a rua, colete garrafas PET e sacolas plásticas. Depois descarte tudo na lixeira vermelha.",
+        cars: 2,
+        speed: [1.8, 3.0],
+        wastes: [
+          ["garrafa_pet_1", "garrafa PET", "plastico", [210, 455]],
+          ["sacola_plastica_2", "sacola plástica", "plastico", [530, 300]],
+        ],
+      },
+      {
+        title: "Fase 2: Papel",
+        focus: "Atravesse a rua com cuidado. Papel limpo pode ser reciclado: procure papéis, jornais e papelão.",
+        cars: 3,
+        speed: [2.2, 3.8],
+        wastes: [
+          ["papel_amassado_1", "papel amassado", "papel", [180, 505]],
+          ["jornal_1", "jornal", "papel", [470, 382]],
+          ["caixa_papelao_1", "caixa de papelão", "papel", [330, 250]],
+        ],
+      },
+      {
+        title: "Fase 3: Metal",
+        focus: "Atravesse a rua, evite os carros e colete metais. Latas e tampas metálicas vão para a lixeira amarela.",
+        cars: 4,
+        speed: [2.7, 4.6],
+        wastes: [
+          ["lata_metal_1", "lata de metal", "metal", [180, 485]],
+          ["lata_metal_2", "lata de alumínio", "metal", [585, 395]],
+          ["lata_metal_1", "tampa metálica", "metal", [340, 285]],
+        ],
+      },
+      {
+        title: "Fase 4: Vidro",
+        focus: "Atravesse a rua planejando sua rota. Vidros recicláveis precisam da lixeira verde.",
+        cars: 4,
+        speed: [3.0, 5.1],
+        wastes: [
+          ["garrafa_vidro_1", "garrafa de vidro", "vidro", [560, 512]],
+          ["pote_vidro_1", "pote de vidro", "vidro", [180, 372]],
+          ["garrafa_vidro_1", "frasco de vidro", "vidro", [390, 242]],
+        ],
+      },
+      {
+        title: "Fase 5: Orgânico",
+        focus: "Restos de comida e cascas podem virar adubo. Leve tudo para a lixeira marrom.",
+        cars: 5,
+        speed: [3.1, 5.3],
+        wastes: [
+          ["casca_banana_1", "casca de banana", "organico", [180, 520]],
+          ["maca_mordida_1", "maçã mordida", "organico", [560, 430]],
+          ["resto_comida_1", "resto de comida", "organico", [280, 330]],
+          ["casca_banana_1", "casca de fruta", "organico", [500, 230]],
+        ],
+      },
+      {
+        title: "Fase 6: Revisão geral",
+        focus: "Atravesse a rua e revise tudo: separe plástico, papel, metal, vidro e orgânico.",
+        cars: 5,
+        speed: [3.5, 6.0],
+        wastes: [
+          ["garrafa_pet_2", "garrafa PET", "plastico", [160, 525]],
+          ["jornal_1", "jornal", "papel", [575, 468]],
+          ["lata_metal_2", "lata de metal", "metal", [260, 385]],
+          ["pote_vidro_1", "pote de vidro", "vidro", [525, 300]],
+          ["casca_banana_1", "casca de banana", "organico", [340, 210]],
+        ],
+      },
+    ];
+
+    const ASSETS = [
+      "road_bg", "maps_bg", "lixeira_BG", "chicken_idle1", "chicken_walk1", "chicken_walk2", "car1",
+      "button_start", "button_how_to_play", "button_exit", "button_menu", "button_next", "button_restart",
+      "sound_on", "sound_off", "correct_icon", "wrong_icon", "congratulations_banner", "star_full", "star_empty",
+      "garrafa_pet_1", "garrafa_pet_2", "sacola_plastica_2", "papel_amassado_1", "jornal_1",
+      "caixa_papelao_1", "lata_metal_1", "lata_metal_2", "garrafa_vidro_1", "pote_vidro_1",
+      "casca_banana_1", "maca_mordida_1", "resto_comida_1",
+    ];
+
+    const images = {};
+    const keys = {};
+    let gameState = "menu";
+    let previousGameState = "menu";
+    let soundOn = true;
+    let musicOn = true;
+    let levelIndex = 0;
+    let chicken;
+    let cars = [];
+    let wastes = [];
+    let bins = [];
+    let score = 0;
+    let feedbackText = "";
+    let feedbackTimer = 0;
+    let feedbackIcon = null;
+    let draggingItem = null;
+    let dragOffset = [0, 0];
+    let levelStartedAt = 0;
+    let levelStats = [];
+    let currentStats = {};
+    let mapTransitionFrom = 0;
+    let mapTransitionTo = 0;
+    let mapTransitionTimer = 0;
+    let lastTime = 0;
+
+    function rect(x, y, w, h) {
+      return { x, y, w, h };
+    }
+
+    function centeredRect(x, y, w, h) {
+      return rect(x + UI_OFFSET_X, y, w, h);
+    }
+
+    function buttonRect(cx, cy, w = 228, h = 74) {
+      return rect(cx - w / 2, cy - h / 2, w, h);
+    }
+
+    function hit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function pointInRect(p, r) {
+      return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+    }
+
+    function rand(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function loadImage(name) {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          images[name] = img;
+          resolve();
+        };
+        img.onerror = () => {
+          const c = document.createElement("canvas");
+          c.width = 64;
+          c.height = 64;
+          const p = c.getContext("2d");
+          p.fillStyle = "#777";
+          p.fillRect(0, 0, 64, 64);
+          p.fillStyle = "#fff";
+          p.fillText("?", 28, 36);
+          images[name] = c;
+          resolve();
+        };
+        img.src = `images/${name}.png`;
+      });
+    }
+
+    function drawImage(name, x, y, w, h) {
+      const img = images[name];
+      if (img) ctx.drawImage(img, x, y, w, h);
+    }
+
+    function drawCropped(name, crop, x, y, w, h) {
+      const img = images[name];
+      if (img) ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, x, y, w, h);
+    }
+
+    function drawButton(name, r) {
+      drawCropped(name, BUTTON_CROP, r.x, r.y, r.w, r.h);
+    }
+
+    function drawSoundToggle() {
+      drawCropped(soundOn ? "sound_on" : "sound_off", SOUND_CROP, SOUND_RECT.x, SOUND_RECT.y, SOUND_RECT.w, SOUND_RECT.h);
+    }
+
+    function drawWoodPanel(r) {
+      ctx.fillStyle = "#7b431e";
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = "#1b120b";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = "#c07a34";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x + 5, r.y + 5, r.w - 10, r.h - 10);
+      ctx.strokeStyle = "#5a2e16";
+      ctx.lineWidth = 1;
+      for (let y = r.y + 18; y < r.y + r.h - 8; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(r.x + 10, y);
+        ctx.lineTo(r.x + r.w - 10, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawText(text, x, y, size, color = "#fff1c7", align = "left") {
+      ctx.fillStyle = color;
+      ctx.font = `bold ${size}px Arial`;
+      ctx.textAlign = align;
+      ctx.textBaseline = "top";
+      ctx.fillText(text, x, y);
+    }
+
+    function wrapLines(text, width, size) {
+      const words = String(text).split(/\s+/);
+      const lines = [];
+      let line = "";
+      ctx.font = `bold ${size}px Arial`;
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > width && line) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = test;
+        }
+      }
+      if (line) lines.push(line);
+      return lines;
+    }
+
+    function drawTextBox(text, r, size = 22, icon = null) {
+      const iconSpace = icon ? 54 : 0;
+      const box = rect(r.x + 16 + iconSpace, r.y + 12, r.w - 32 - iconSpace, r.h - 24);
+      let fontSize = size;
+      while (fontSize >= 14) {
+        const lines = wrapLines(text, box.w, fontSize);
+        if (lines.length * (fontSize + 4) <= box.h) break;
+        fontSize -= 1;
+      }
+      const lines = wrapLines(text, box.w, fontSize).slice(0, Math.max(1, Math.floor(box.h / (fontSize + 4))));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(r.x, r.y, r.w, r.h);
+      ctx.clip();
+      if (icon) drawCropped(icon, ICON_CROP, r.x + 14, r.y + r.h / 2 - 20, 40, 40);
+      for (let i = 0; i < lines.length; i++) {
+        drawText(lines[i], box.x, box.y + i * (fontSize + 4), fontSize);
+      }
+      ctx.restore();
+    }
+
+    function setFeedback(text, duration = 180, icon = null) {
+      feedbackText = text;
+      feedbackTimer = duration;
+      feedbackIcon = icon;
+    }
+
+    class Chicken {
+      constructor() {
+        this.x = WIDTH / 2;
+        this.y = HEIGHT - 74;
+        this.speed = 3.3;
+        this.image = "chicken_idle1";
+        this.frame = 0;
+        this.frameTimer = 0;
+      }
+
+      move() {
+        let moved = false;
+        if (keys.arrowup || keys.w) { this.y -= this.speed; moved = true; }
+        if (keys.arrowdown || keys.s) { this.y += this.speed; moved = true; }
+        if (keys.arrowleft || keys.a) { this.x -= this.speed; moved = true; }
+        if (keys.arrowright || keys.d) { this.x += this.speed; moved = true; }
+        this.x = Math.max(28, Math.min(WIDTH - 28, this.x));
+        this.y = Math.max(34, Math.min(HEIGHT - 34, this.y));
+        if (moved) {
+          this.frameTimer++;
+          if (this.frameTimer >= 9) {
+            this.frameTimer = 0;
+            this.frame = (this.frame + 1) % 2;
+            this.image = this.frame === 0 ? "chicken_walk1" : "chicken_walk2";
+          }
+        } else {
+          this.image = "chicken_idle1";
+        }
+      }
+
+      hitbox() {
+        return rect(this.x - 18, this.y - 18, 36, 36);
+      }
+
+      draw() {
+        drawImage(this.image, this.x - 28, this.y - 28, 56, 56);
+      }
+    }
+
+    class Car {
+      constructor(y, minSpeed, maxSpeed, delay = 0) {
+        this.y = y;
+        this.x = WIDTH + delay + rand(0, 260);
+        this.minSpeed = minSpeed;
+        this.maxSpeed = maxSpeed;
+        this.speed = rand(minSpeed, maxSpeed);
+      }
+
+      move() {
+        this.x -= this.speed;
+        if (this.x < -220) {
+          this.x = WIDTH + rand(80, 330);
+          this.speed = rand(this.minSpeed, this.maxSpeed);
+        }
+      }
+
+      hitbox() {
+        return rect(this.x + 22, this.y + 54, 148, 74);
+      }
+
+      draw() {
+        drawImage("car1", this.x, this.y, 190, 190);
+      }
+    }
+
+    class Waste {
+      constructor(name, label, category, pos) {
+        this.name = name;
+        this.label = label;
+        this.category = category;
+        this.x = Math.floor(pos[0] * WIDTH / BASE_WIDTH);
+        this.y = pos[1];
+        this.collected = false;
+        this.discarded = false;
+        this.firstTry = true;
+        this.dragPos = [0, 0];
+        this.homePos = [0, 0];
+      }
+
+      roadRect() {
+        return rect(this.x - 24, this.y - 24, 48, 48);
+      }
+
+      dragRect() {
+        return rect(this.dragPos[0], this.dragPos[1], DRAG_ITEM_SIZE, DRAG_ITEM_SIZE);
+      }
+
+      drawRoad() {
+        if (!this.collected) drawImage(this.name, this.x - 23, this.y - 23, 46, 46);
+      }
+
+      drawDrag() {
+        if (!this.discarded) drawImage(this.name, this.dragPos[0], this.dragPos[1], DRAG_ITEM_SIZE, DRAG_ITEM_SIZE);
+      }
+    }
+
+    function currentLevel() {
+      return LEVELS[levelIndex];
+    }
+
+    function buildCars() {
+      const level = currentLevel();
+      const rows = [170, 270, 370, 470, 565].slice(0, level.cars);
+      return rows.map((y, i) => new Car(y, level.speed[0], level.speed[1], i * 190));
+    }
+
+    function buildWastes() {
+      return currentLevel().wastes.map(data => new Waste(data[0], data[1], data[2], data[3]));
+    }
+
+    function startLevel(index = levelIndex) {
+      levelIndex = index;
+      chicken = new Chicken();
+      cars = buildCars();
+      wastes = buildWastes();
+      score = 0;
+      levelStartedAt = performance.now();
+      currentStats = { level: levelIndex + 1, collected: 0, correct_discards: 0, wrong_discards: 0, first_try_discards: 0, time: 0, stars: 0 };
+      setFeedback(currentLevel().focus, 240);
+      gameState = "intro";
+    }
+
+    function restartCurrentLevel() {
+      startLevel(levelIndex);
+    }
+
+    function startMapTransition(from, to) {
+      mapTransitionFrom = from;
+      mapTransitionTo = to;
+      mapTransitionTimer = 0;
+      gameState = "map_transition";
+    }
+
+    function requestMenuConfirmation() {
+      if (gameState === "menu") return;
+      previousGameState = gameState;
+      gameState = "confirm_menu";
+    }
+
+    function confirmGoToMenu() {
+      draggingItem = null;
+      gameState = "menu";
+    }
+
+    function cancelMenuConfirmation() {
+      gameState = previousGameState;
+    }
+
+    function collectedCount() {
+      return wastes.filter(w => w.collected).length;
+    }
+
+    function allCollected() {
+      return wastes.every(w => w.collected);
+    }
+
+    function allDiscarded() {
+      return wastes.filter(w => w.collected).every(w => w.discarded);
+    }
+
+    function prepareSorting() {
+      const sx = WIDTH / BASE_WIDTH;
+      bins = [
+        { category: "papel", rect: rect(45 * sx, 330, 130 * sx, 335) },
+        { category: "plastico", rect: rect(184 * sx, 330, 130 * sx, 335) },
+        { category: "metal", rect: rect(323 * sx, 330, 130 * sx, 335) },
+        { category: "vidro", rect: rect(462 * sx, 330, 130 * sx, 335) },
+        { category: "organico", rect: rect(600 * sx, 330, 130 * sx, 335) },
+      ];
+      wastes.filter(w => w.collected).forEach((w, i) => {
+        w.homePos = [UI_OFFSET_X + 26 + i * 54, 700];
+        w.dragPos = [...w.homePos];
+      });
+      setFeedback("Arraste cada resíduo para a lixeira correta.", 210);
+      gameState = "sorting";
+    }
+
+    function finishLevel() {
+      currentStats.time = Math.floor((performance.now() - levelStartedAt) / 1000);
+      const errors = currentStats.wrong_discards;
+      currentStats.stars = errors === 0 ? 3 : errors <= 2 ? 2 : 1;
+      levelStats.push({ ...currentStats });
+      setFeedback("Parabéns! Você ajudou a manter a cidade limpa.", 240, "correct_icon");
+      gameState = "level_complete";
+    }
+
+    function drawRoadBackground() {
+      drawImage("road_bg", 0, 0, WIDTH, HEIGHT);
+    }
+
+    function drawMapBackground() {
+      drawImage("maps_bg", 0, 0, WIDTH, HEIGHT);
+    }
+
+    function drawMenu() {
+      drawRoadBackground();
+      drawWoodPanel(centeredRect(78, 72, 612, 560));
+      drawText("The Chicken Across the Street", WIDTH / 2, 112, 44, "#fff1c7", "center");
+      drawText("Coleta seletiva", WIDTH / 2, 168, 40, "#ffe08a", "center");
+      drawButton("button_start", buttonRect(WIDTH / 2, 284));
+      drawButton("button_how_to_play", buttonRect(WIDTH / 2, 382));
+      drawButton("button_exit", buttonRect(WIDTH / 2, 480));
+    }
+
+    function drawHowToPlay() {
+      drawRoadBackground();
+      drawWoodPanel(centeredRect(54, 58, 660, 596));
+      drawText("Como jogar", WIDTH / 2, 84, 46, "#fff1c7", "center");
+      drawTextBox("Use as setas ou WASD para mover a galinha. O objetivo é atravessar a rua com atenção, coletar todos os resíduos da fase e chegar ao outro lado. Depois, arraste cada item para a lixeira correta: plástico, papel, metal, vidro ou orgânico. O jogo mostra dicas para você aprender com cada tentativa.", centeredRect(92, 154, 584, 330), 28);
+      drawButton("button_menu", buttonRect(WIDTH / 2, 585));
+    }
+
+    function drawIntro() {
+      drawRoadBackground();
+      drawWoodPanel(centeredRect(58, 96, 652, 470));
+      drawText(currentLevel().title, WIDTH / 2, 130, 44, "#fff1c7", "center");
+      drawTextBox(currentLevel().focus, centeredRect(96, 198, 576, 120), 30);
+      drawTextBox("Objetivo: atravesse a rua, recolha todos os resíduos, evite os carros e faça o descarte correto.", centeredRect(96, 342, 576, 96), 27);
+      drawButton("button_start", buttonRect(WIDTH / 2, 505));
+    }
+
+    function drawHud() {
+      drawWoodPanel(centeredRect(12, 10, 744, 58));
+      drawText(currentLevel().title, UI_OFFSET_X + 26, 24, 24);
+      drawText(`Coletados: ${collectedCount()}/${wastes.length}`, UI_OFFSET_X + 330, 24, 24, "#ffe08a");
+      drawText(`Pontos: ${score}`, UI_OFFSET_X + 555, 24, 24, "#ffd447");
+    }
+
+    function drawPlaying() {
+      drawRoadBackground();
+      wastes.forEach(w => w.drawRoad());
+      cars.forEach(c => c.draw());
+      chicken.draw();
+      drawHud();
+      if (feedbackTimer > 0) {
+        const r = centeredRect(60, 680, 648, 64);
+        drawWoodPanel(r);
+        drawTextBox(feedbackText, r, 23, feedbackIcon);
+      }
+    }
+
+    function drawGameOver() {
+      drawRoadBackground();
+      drawWoodPanel(centeredRect(74, 150, 620, 470));
+      drawText("A galinha foi atropelada!", WIDTH / 2, 200, 36, "#ffd6c2", "center");
+      drawTextBox("Observe o trânsito, espere uma abertura segura e tente novamente.", centeredRect(112, 262, 544, 112), 28);
+      drawCropped("wrong_icon", ICON_CROP, WIDTH / 2 - 42, 388, 84, 84);
+      drawButton("button_restart", buttonRect(WIDTH / 2, 500));
+      drawButton("button_menu", buttonRect(WIDTH / 2, 575));
+    }
+
+    function drawSorting() {
+      drawImage("lixeira_BG", 0, 0, WIDTH, HEIGHT);
+      drawWoodPanel(centeredRect(14, 642, 302, 112));
+      drawText("ITENS", UI_OFFSET_X + 165, 652, 22, "#fff1c7", "center");
+      wastes.forEach(w => {
+        if (w.collected && !w.discarded && w !== draggingItem) w.drawDrag();
+      });
+      if (draggingItem) draggingItem.drawDrag();
+      const r = centeredRect(330, 642, 424, 112);
+      drawWoodPanel(r);
+      drawTextBox(feedbackText || "Arraste os resíduos para as lixeiras.", r, 22, feedbackIcon);
+    }
+
+    function drawStars(stars, y) {
+      for (let i = 0; i < 3; i++) {
+        drawImage(i < stars ? "star_full" : "star_empty", WIDTH / 2 - 144 + i * 102, y, 84, 84);
+      }
+    }
+
+    function drawLevelComplete() {
+      drawRoadBackground();
+      drawWoodPanel(centeredRect(58, 86, 652, 560));
+      drawCropped("congratulations_banner", BANNER_CROP, WIDTH / 2 - 250, 92, 500, 218);
+      drawStars(currentStats.stars, 278);
+      drawText(`Pontos: ${score}`, WIDTH / 2, 372, 32, "#f3d24f", "center");
+      drawText(`Descartes corretos: ${currentStats.correct_discards}`, WIDTH / 2, 418, 28, "#fff1c7", "center");
+      drawText(`Tentativas para corrigir: ${currentStats.wrong_discards}`, WIDTH / 2, 458, 28, "#fff1c7", "center");
+      drawTextBox("Parabéns! Você ajudou a manter a cidade limpa.", centeredRect(118, 496, 532, 58), 28);
+      drawButton("button_next", buttonRect(WIDTH / 2 - 130, 594));
+      drawButton("button_menu", buttonRect(WIDTH / 2 + 130, 594));
+    }
+
+    function drawGameComplete() {
+      drawRoadBackground();
+      drawWoodPanel(centeredRect(48, 54, 672, 650));
+      const totalCorrect = levelStats.reduce((sum, s) => sum + s.correct_discards, 0);
+      const totalWrong = levelStats.reduce((sum, s) => sum + s.wrong_discards, 0);
+      const totalStars = levelStats.reduce((sum, s) => sum + s.stars, 0);
+      drawText("Você concluiu o jogo!", WIDTH / 2, 88, 44, "#fff1c7", "center");
+      drawTextBox("Agora você sabe atravessar com atenção, coletar resíduos do cotidiano e escolher a lixeira correta.", centeredRect(88, 150, 592, 88), 28);
+      drawText(`Resíduos classificados: ${totalCorrect}`, WIDTH / 2, 272, 30, "#fff1c7", "center");
+      drawText(`Erros corrigidos com aprendizagem: ${totalWrong}`, WIDTH / 2, 316, 30, "#fff1c7", "center");
+      drawText(`Estrelas conquistadas: ${totalStars}/${LEVELS.length * 3}`, WIDTH / 2, 360, 30, "#f3d24f", "center");
+      drawTextBox("Evidências de aprendizagem: você atravessou a rua, coletou resíduos, comparou materiais, corrigiu tentativas e aplicou a coleta seletiva na fase de revisão.", centeredRect(88, 414, 592, 116), 24);
+      drawButton("button_restart", buttonRect(WIDTH / 2 - 130, 638));
+      drawButton("button_menu", buttonRect(WIDTH / 2 + 130, 638));
+    }
+
+    function drawMapTransition() {
+      const progress = Math.min(1, mapTransitionTimer / MAP_TRANSITION_DURATION);
+      const eased = progress * progress * (3 - 2 * progress);
+      const start = MAP_POINTS[mapTransitionFrom];
+      const end = MAP_POINTS[mapTransitionTo];
+      const x = start[0] + (end[0] - start[0]) * eased;
+      const y = start[1] + (end[1] - start[1]) * eased - 54;
+      const frame = Math.floor(mapTransitionTimer / 12) % 2 === 0 ? "chicken_walk1" : "chicken_walk2";
+      drawMapBackground();
+      drawImage(frame, x - 28, y - 28, 56, 56);
+      const r = rect(WIDTH / 2 - 196, 660, 392, 68);
+      drawWoodPanel(r);
+      drawTextBox(`Indo da fase ${mapTransitionFrom + 1} para a fase ${mapTransitionTo + 1}...`, rect(WIDTH / 2 - 180, 668, 360, 52), 24);
+    }
+
+    function drawConfirmMenu() {
+      const state = previousGameState;
+      if (state === "sorting") drawSorting();
+      else if (state === "level_complete") drawLevelComplete();
+      else if (state === "game_complete") drawGameComplete();
+      else if (state === "gameover") drawGameOver();
+      else if (state === "map_transition") drawMapTransition();
+      else if (state === "how_to_play") drawHowToPlay();
+      else if (state === "intro") drawIntro();
+      else drawPlaying();
+      ctx.fillStyle = "rgba(0, 0, 0, .55)";
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      drawWoodPanel(centeredRect(108, 206, 552, 310));
+      drawText("Voltar ao menu?", WIDTH / 2, 240, 42, "#fff1c7", "center");
+      drawTextBox("Seu progresso da fase atual será perdido. Deseja mesmo retornar ao menu?", centeredRect(150, 304, 468, 92), 27);
+      drawButton("button_menu", buttonRect(WIDTH / 2 - 130, 450));
+      drawButton("button_next", buttonRect(WIDTH / 2 + 130, 450));
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      if (gameState === "menu") drawMenu();
+      else if (gameState === "how_to_play") drawHowToPlay();
+      else if (gameState === "intro") drawIntro();
+      else if (gameState === "playing") drawPlaying();
+      else if (gameState === "gameover") drawGameOver();
+      else if (gameState === "sorting") drawSorting();
+      else if (gameState === "level_complete") drawLevelComplete();
+      else if (gameState === "game_complete") drawGameComplete();
+      else if (gameState === "map_transition") drawMapTransition();
+      else if (gameState === "confirm_menu") drawConfirmMenu();
+      drawSoundToggle();
+    }
+
+    function update() {
+      if (feedbackTimer > 0) feedbackTimer--;
+      if (gameState === "map_transition") {
+        mapTransitionTimer++;
+        if (mapTransitionTimer >= MAP_TRANSITION_DURATION) startLevel(mapTransitionTo);
+        return;
+      }
+      if (gameState !== "playing") return;
+
+      chicken.move();
+      for (const car of cars) {
+        car.move();
+        if (hit(chicken.hitbox(), car.hitbox())) {
+          playHonk();
+          setFeedback("Observe o trânsito e tente novamente.", 180, "wrong_icon");
+          gameState = "gameover";
+          return;
+        }
+      }
+      for (const item of wastes) {
+        if (!item.collected && hit(chicken.hitbox(), item.roadRect())) {
+          item.collected = true;
+          score += 10;
+          currentStats.collected += 1;
+          setFeedback(`Você coletou ${item.label}. Leve para a lixeira certa depois!`, 150, "correct_icon");
+        }
+      }
+      if (chicken.y < 55) {
+        if (allCollected()) {
+          prepareSorting();
+        } else {
+          const missing = wastes.length - collectedCount();
+          setFeedback(`Ainda há ${missing} resíduo(s) para recolher antes de atravessar.`, 180);
+          chicken.y = 88;
+        }
+      }
+    }
+
+    function canvasPoint(event) {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - r.left) * WIDTH / r.width,
+        y: (event.clientY - r.top) * HEIGHT / r.height,
+      };
+    }
+
+    function toggleSound() {
+      soundOn = !soundOn;
+      musicOn = soundOn;
+    }
+
+    function playHonk() {
+      if (!soundOn) return;
+      try {
+        const audio = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.frequency.value = 220;
+        gain.gain.value = 0.1;
+        osc.connect(gain);
+        gain.connect(audio.destination);
+        osc.start();
+        osc.stop(audio.currentTime + 0.12);
+      } catch (_) {}
+    }
+
+    function handleClick(p) {
+      if (pointInRect(p, SOUND_RECT)) {
+        toggleSound();
+        return;
+      }
+      if (gameState === "menu") {
+        if (pointInRect(p, buttonRect(WIDTH / 2, 284))) {
+          levelStats = [];
+          startLevel(0);
+        } else if (pointInRect(p, buttonRect(WIDTH / 2, 382))) {
+          gameState = "how_to_play";
+        } else if (pointInRect(p, buttonRect(WIDTH / 2, 480))) {
+          alert("Obrigado por jogar!");
+        }
+      } else if (gameState === "how_to_play") {
+        if (pointInRect(p, buttonRect(WIDTH / 2, 585))) requestMenuConfirmation();
+      } else if (gameState === "intro") {
+        if (pointInRect(p, buttonRect(WIDTH / 2, 505))) gameState = "playing";
+      } else if (gameState === "gameover") {
+        if (pointInRect(p, buttonRect(WIDTH / 2, 500))) restartCurrentLevel();
+        else if (pointInRect(p, buttonRect(WIDTH / 2, 575))) requestMenuConfirmation();
+      } else if (gameState === "level_complete") {
+        if (pointInRect(p, buttonRect(WIDTH / 2 - 130, 594))) {
+          if (levelIndex < LEVELS.length - 1) startMapTransition(levelIndex, levelIndex + 1);
+          else gameState = "game_complete";
+        } else if (pointInRect(p, buttonRect(WIDTH / 2 + 130, 594))) {
+          requestMenuConfirmation();
+        }
+      } else if (gameState === "game_complete") {
+        if (pointInRect(p, buttonRect(WIDTH / 2 - 130, 638))) {
+          levelStats = [];
+          startLevel(0);
+        } else if (pointInRect(p, buttonRect(WIDTH / 2 + 130, 638))) {
+          requestMenuConfirmation();
+        }
+      } else if (gameState === "confirm_menu") {
+        if (pointInRect(p, buttonRect(WIDTH / 2 - 130, 450))) confirmGoToMenu();
+        else if (pointInRect(p, buttonRect(WIDTH / 2 + 130, 450))) cancelMenuConfirmation();
+      }
+    }
+
+    canvas.addEventListener("mousedown", event => {
+      const p = canvasPoint(event);
+      if (gameState === "sorting") {
+        for (let i = wastes.length - 1; i >= 0; i--) {
+          const item = wastes[i];
+          if (item.collected && !item.discarded && pointInRect(p, item.dragRect())) {
+            draggingItem = item;
+            dragOffset = [p.x - item.dragPos[0], p.y - item.dragPos[1]];
+            return;
+          }
+        }
+      }
+      handleClick(p);
+    });
+
+    canvas.addEventListener("mousemove", event => {
+      if (gameState !== "sorting" || !draggingItem) return;
+      const p = canvasPoint(event);
+      draggingItem.dragPos = [p.x - dragOffset[0], p.y - dragOffset[1]];
+    });
+
+    canvas.addEventListener("mouseup", event => {
+      if (gameState !== "sorting" || !draggingItem) {
+        draggingItem = null;
+        return;
+      }
+      const item = draggingItem;
+      const dropped = bins.find(bin => hit(item.dragRect(), bin.rect));
+      if (dropped && dropped.category === item.category) {
+        item.discarded = true;
+        currentStats.correct_discards += 1;
+        score += 20;
+        if (item.firstTry) {
+          currentStats.first_try_discards += 1;
+          score += 10;
+        }
+        setFeedback("Parabéns! Você descartou corretamente esse material.", 180, "correct_icon");
+        if (allDiscarded()) finishLevel();
+      } else if (dropped) {
+        item.firstTry = false;
+        currentStats.wrong_discards += 1;
+        setFeedback(`${item.label} deve ir em ${CATEGORY_LABELS[item.category]}: ${CATEGORY_REASONS[item.category]}`, 260, "wrong_icon");
+        item.dragPos = [...item.homePos];
+      } else {
+        item.dragPos = [...item.homePos];
+      }
+      draggingItem = null;
+    });
+
+    window.addEventListener("keydown", event => {
+      keys[event.key.toLowerCase()] = true;
+      if (event.key === "Escape") {
+        if (gameState === "confirm_menu") cancelMenuConfirmation();
+        else if (gameState !== "menu") requestMenuConfirmation();
+      }
+      if (gameState === "gameover" && event.key.toLowerCase() === "r") restartCurrentLevel();
+      if (gameState === "intro" && (event.key === "Enter" || event.key === " ")) gameState = "playing";
+    });
+
+    window.addEventListener("keyup", event => {
+      keys[event.key.toLowerCase()] = false;
+    });
+
+    function loop(time) {
+      lastTime = time;
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    async function init() {
+      await Promise.all(ASSETS.map(loadImage));
+      startLevel(0);
+      gameState = "menu";
+      requestAnimationFrame(loop);
+    }
+
+    init();
+  </script>
+</body>
+</html>
